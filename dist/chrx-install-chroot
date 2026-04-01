@@ -4,7 +4,7 @@
 #
 # This portion of the installation process is run in a chroot.
 #
-set -uo pipefail
+set -euo pipefail
 
 echo_title() { echo -e "\n${ANSI_GRN}${*}${ANSI_RST}"; }
 echo_title_yel() { echo -e "\n${ANSI_YEL}${*}${ANSI_RST}"; }

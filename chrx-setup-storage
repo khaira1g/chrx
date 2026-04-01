@@ -7,7 +7,7 @@
 #
 # It cannot be run directly from the commandline.
 #
-set -uo pipefail
+set -euo pipefail
 
 eval_try umount -R ${CHRX_INSTALL_ROOT} 2>/dev/null ## be safe.
 

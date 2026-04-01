@@ -4,7 +4,7 @@
 #
 # chromebook unix installer
 #
-set -uo pipefail
+set -euo pipefail
 
 CHRX_VERSION="3.0.2"
 
