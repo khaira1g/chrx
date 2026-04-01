@@ -7,17 +7,18 @@
 #
 # It cannot be run directly from the commandline.
 #
+set -uo pipefail
 
 eval_try umount -R ${CHRX_INSTALL_ROOT} 2>/dev/null ## be safe.
 
 set_root_partition() {
-  pnum=$1
+  local pnum="$1"
 
-  case "$CHRX_TARGET_DISK" in
+  case "${CHRX_TARGET_DISK}" in
     /dev/sd*)     CHRX_ROOT_PARTITION="${CHRX_TARGET_DISK}${pnum}" ;;
     /dev/mmcblk*) CHRX_ROOT_PARTITION="${CHRX_TARGET_DISK}p${pnum}" ;;
     /dev/nvme*)   CHRX_ROOT_PARTITION="${CHRX_TARGET_DISK}p${pnum}" ;;
-    *) echo_fail "\nunrecognized disk device: \"$CHRX_TARGET_DISK\"!"; exit 1 ;;
+    *) echo_fail "\nunrecognized disk device: \"${CHRX_TARGET_DISK}\"!"; exit 1 ;;
   esac
 }
 
