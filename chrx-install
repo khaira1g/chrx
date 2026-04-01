@@ -357,7 +357,7 @@ get_os_version_fedora()
   release_log_url="https://dl.fedoraproject.org/pub/fedora/linux/releases/"
   # Match 2- or 3-digit version numbers
   version_list=$(curl -s "${release_log_url}" | grep -Eo ">[0-9]{2,3}/" | grep -o "[0-9]*")
-  CHRX_OS_VERSION=$(echo "${version_list}" | sort -n | tail -1)
+  CHRX_OS_VERSION=$(echo "${version_list}" | sort -V | tail -1)
   # default to 38 if detection fails
   if ! [[ "${CHRX_OS_VERSION}" =~ ^[0-9]+$ ]]; then
     CHRX_OS_VERSION=38
