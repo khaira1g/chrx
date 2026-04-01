@@ -4,6 +4,7 @@
 #
 # This portion of the installation process is run in a chroot.
 #
+set -euo pipefail
 
 echo_title() { echo -e "\n${ANSI_GRN}${*}${ANSI_RST}"; }
 echo_title_yel() { echo -e "\n${ANSI_YEL}${*}${ANSI_RST}"; }
@@ -75,54 +76,59 @@ install_additional_packages()
 
 install_simplescreenrecorder()
 {
-  add-apt-repository -y ppa:maarten-baert/simplescreenrecorder
-  apt_get_update
-  apt_get_install simplescreenrecorder
+  # The maarten-baert PPA is no longer maintained; try the package from
+  # the distro repos first, then fall back to a warning.
+  if apt_get_install simplescreenrecorder 2>/dev/null; then
+    echo_title "simplescreenrecorder installed from distribution repositories."
+  else
+    echo_warn "simplescreenrecorder is not available in this release's repos."
+    echo_warn "Consider installing OBS Studio instead: apt install obs-studio"
+  fi
 }
 
 install_steam()
 {
-  curl -o /tmp/steam_latest.deb \
-    http://repo.steampowered.com/steam/archive/precise/steam_latest.deb
-  dpkg -i /tmp/steam_latest.deb
-  ## steam launcher requires python-apt in xenial
-  ## python-apt does not exist in vivid
-  apt-get -y -f install
+  # Enable i386 architecture required by Steam
+  dpkg --add-architecture i386
+  apt_get_update
+  apt_get_install steam-installer || {
+    # Fallback: download directly from Valve
+    curl -fLo /tmp/steam_latest.deb \
+      'https://cdn.akamai.steamstatic.com/client/installer/steam.deb'
+    dpkg -i /tmp/steam_latest.deb
+    apt-get -y -f install
+    rm -f /tmp/steam_latest.deb
+  }
 }
 
 install_minecraft()
 {
-  apt_get_install default-jre
-  curl -o /usr/local/bin/Minecraft.jar \
-    https://s3.amazonaws.com/Minecraft.Download/launcher/Minecraft.jar
-  curl -o /usr/share/pixmaps/minecraft.png https://chrx.org/minecraft.png
-  mkdir -p /usr/local/share/applications
-  cat > /usr/local/share/applications/minecraft.desktop <<-EOF
-	[Desktop Entry]
-	Type=Application
-	Name=Minecraft
-	Comment=Minecraft
-	Exec=java -jar /usr/local/bin/Minecraft.jar
-	Icon=/usr/share/pixmaps/minecraft.png
-	Categories=Game;
-	EOF
+  apt_get_install default-jre wget
+  # The old S3 launcher URL is defunct. Download the official Minecraft
+  # Linux launcher from Mojang.
+  local mc_deb="/tmp/Minecraft.deb"
+  curl -fLo "${mc_deb}" \
+    'https://launcher.mojang.com/download/Minecraft.deb'
+  dpkg -i "${mc_deb}"
+  apt-get -y -f install
+  rm -f "${mc_deb}"
 }
 
 install_kodi()
 {
-  apt_get_install python-software-properties pkg-config
+  # kodi is available in Ubuntu 18.04+ universe; no PPA needed.
   apt_get_install software-properties-common
-  add-apt-repository -y ppa:team-xbmc/ppa
-  apt_get_update
   apt_get_install kodi
 }
 
 install_google_chrome_from_deb()
 {
-  curl -O https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-  dpkg -i google-chrome-stable_current_amd64.deb
+  local deb="/tmp/google-chrome-stable_current_amd64.deb"
+  curl -fLo "${deb}" \
+    'https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb'
+  dpkg -i "${deb}"
   apt-get -f -y install
-  rm -f google-chrome-stable_current_amd64.deb
+  rm -f "${deb}"
 }
 
 install_set_hdr()
@@ -173,20 +179,12 @@ fedora_install_additional_packages()
 
 fedora_install_minecraft()
 {
-  dnf ${VERBOSITY_DNF} -y install java
-  curl -o /usr/local/bin/Minecraft.jar \
-    https://s3.amazonaws.com/Minecraft.Download/launcher/Minecraft.jar
-  curl -o /usr/share/pixmaps/minecraft.png https://chrx.org/minecraft.png
-  mkdir -p /usr/local/share/applications
-  cat > /usr/local/share/applications/minecraft.desktop <<-EOF
-	[Desktop Entry]
-	Type=Application
-	Name=Minecraft
-	Comment=Minecraft
-	Exec=java -jar /usr/local/bin/Minecraft.jar
-	Icon=/usr/share/pixmaps/minecraft.png
-	Categories=Game;
-	EOF
+  dnf ${VERBOSITY_DNF} -y install java-latest-openjdk
+  local mc_rpm="/tmp/Minecraft.rpm"
+  curl -fLo "${mc_rpm}" \
+    'https://launcher.mojang.com/download/Minecraft.rpm'
+  dnf ${VERBOSITY_DNF} -y install "${mc_rpm}"
+  rm -f "${mc_rpm}"
 }
 
 fedora_install_set_hdr()
@@ -201,7 +199,7 @@ fedora_install_set_hdr()
 
 ubuntu_add_repos()
 {
-  echo_title "Adding Ubuntu software respositories."
+  echo_title "Adding Ubuntu software repositories."
   add-apt-repository -y main
   add-apt-repository -y universe
   add-apt-repository -y restricted
@@ -211,10 +209,11 @@ ubuntu_add_repos()
 
 galliumos_add_repos()
 {
-  echo_title "Adding GalliumOS software respositories."
-  curl -O ${VERBOSITY_CURL} http://apt.galliumos.org/galliumos.gpg
-  apt-key add galliumos.gpg
-  add-apt-repository -y 'deb http://apt.galliumos.org/ vivid-galliumos main'
+  echo_title "Adding GalliumOS software repositories."
+  curl -fsSL ${VERBOSITY_CURL} http://apt.galliumos.org/galliumos.gpg \
+    | gpg --dearmor -o /usr/share/keyrings/galliumos-archive-keyring.gpg
+  echo "deb [signed-by=/usr/share/keyrings/galliumos-archive-keyring.gpg] http://apt.galliumos.org/ vivid-galliumos main" \
+    > /etc/apt/sources.list.d/galliumos.list
   APT_DB_NEEDS_UPDATE=1
 }
 
@@ -303,28 +302,29 @@ fedora_install_distenv()
 
 chrome_add_repos()
 {
-  echo_title "Adding Google Chrome software respositories."
-  curl -O ${VERBOSITY_CURL} https://dl-ssl.google.com/linux/linux_signing_key.pub
-  apt-key add linux_signing_key.pub
-  add-apt-repository -y "deb http://dl.google.com/linux/chrome/deb/ stable main"
+  echo_title "Adding Google Chrome software repositories."
+  curl -fsSL 'https://dl.google.com/linux/linux_signing_key.pub' \
+    | gpg --dearmor -o /usr/share/keyrings/google-chrome-archive-keyring.gpg
+  echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-archive-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list
   APT_DB_NEEDS_UPDATE=1
 }
 
 add_first_user()
 {
   echo_title "Creating user \"${CHRX_USERNAME}\"."
-  useradd -m ${CHRX_USERNAME} -s /bin/bash
-  echo ${CHRX_USERNAME}:${CHRX_USERNAME} | chpasswd
+  useradd -m "${CHRX_USERNAME}" -s /bin/bash
+  echo "${CHRX_USERNAME}:${CHRX_USERNAME}" | chpasswd
 
   local _groups
   case "${CHRX_OS_DISTRO}" in
     fedora) _groups="adm wheel cdrom" ;;
     *)      _groups="adm sudo cdrom dip plugdev lpadmin" ;; #sambashare
   esac
-  echo_title "Adding user \"${CHRX_USERNAME}\" to groups \"$_groups\"."
+  echo_title "Adding user \"${CHRX_USERNAME}\" to groups \"${_groups}\"."
   ## add individually in case any groups do not exist (fixes #30)
-  for group in $_groups; do
-    usermod -a -G ${group} ${CHRX_USERNAME}
+  for group in ${_groups}; do
+    usermod -a -G "${group}" "${CHRX_USERNAME}"
   done
 }
 
@@ -393,7 +393,7 @@ fedora_set_timezone()
 {
   echo_title "Setting timezone to \"${CHRX_TZ}\"."
   rm -f /etc/localtime
-  ln -s /usr/share/zoneinfo/${CHRX_TZ} /etc/localtime
+  ln -s "/usr/share/zoneinfo/${CHRX_TZ}" /etc/localtime
 }
 
 install_language_support()
@@ -523,59 +523,21 @@ fedora_install_kernel()
 
 install_kernel_newer_than_min()
 {
-  ## Current Ubuntu LTS is 14.04.3, which delivers kernel version 3.14.1.
-  ## We need a minumum kernel version of 3.17 for important cyapa trackpad
-  ## patches, so we will update the kernel to the latest 3.17 if necessary.
-
-  ## TODO: keep these updated, though we do check before installing!
-  NEW_KERNEL_BASE="http://kernel.ubuntu.com/~kernel-ppa/mainline/v3.17.1-utopic"
-  NEW_KERNEL_REV="3.17.1-031701_3.17.1-031701.201410150735"
-  NEW_KERNEL_GREV="3.17.1-031701-generic_3.17.1-031701.201410150735"
-  NEW_KV_MAJ=3
-  NEW_KV_MIN=17
-  NEW_KV_PAT=1
-
-  ## install newest-released kernel, iff installed kernel is older
-  KV=`dpkg -s linux-image-generic|grep "^Version:"|cut -d\  -f2|cut -d\. -f1-3`
-  KV_MAJ=`echo ${KV} | cut -d\. -f1`
-  KV_MIN=`echo ${KV} | cut -d\. -f2`
-  KV_PAT=`echo ${KV} | cut -d\. -f3`
-
-  echo_title "Installed kernel is version ${KV_MAJ}.${KV_MIN}.${KV_PAT}"
-
-  new_is_newer=""
-  if [ "${NEW_KV_MAJ}" -gt "${KV_MAJ}" ]; then
-    new_is_newer="yes"
-  elif [ "${NEW_KV_MAJ}" -eq "${KV_MAJ}" ]; then
-    if [ "${NEW_KV_MIN}" -gt "${KV_MIN}" ]; then
-      new_is_newer="yes"
-    elif [ "${NEW_KV_MIN}" -eq "${KV_MIN}" ]; then
-      if [ "${NEW_KV_PAT}" -gt "${KV_PAT}" ]; then
-        new_is_newer="yes"
-      fi
-    fi
-  fi
-
-  if [ "${new_is_newer}" ]; then
-    echo "Newer kernel available (${NEW_KERNEL_REV} > ${KV})"
-    echo_title "Installing updated Linux kernel (version ${NEW_KERNEL_REV})"
-    rm -f linux-*.deb
-    curl -O ${VERBOSITY_CURL} ${NEW_KERNEL_BASE}/linux-image-${NEW_KERNEL_GREV}_amd64.deb
-    curl -O ${VERBOSITY_CURL} ${NEW_KERNEL_BASE}/linux-headers-${NEW_KERNEL_GREV}_amd64.deb
-    curl -O ${VERBOSITY_CURL} ${NEW_KERNEL_BASE}/linux-headers-${NEW_KERNEL_REV}_all.deb
-    dpkg -i linux-*.deb
-    rm -f linux-*.deb
-  else
-    echo "Installed kernel is newest-known (${KV} >= ${NEW_KERNEL_REV})"
-  fi
+  ## This function previously installed a mainline kernel from
+  ## kernel.ubuntu.com to satisfy a minimum version requirement for
+  ## cyapa trackpad support (kernel >= 3.17).  All supported Ubuntu
+  ## releases now ship kernels far beyond that threshold, so the
+  ## upgrade is no longer needed and the old PPA URLs are defunct.
+  ## Keeping this stub so call-sites don't need to be changed.
+  :
 }
 
 galliumos_update_core_image()
 {
   apt_get_update
   echo_title "Upgrading GalliumOS core image."
-  ## FIXME: need --force-yes until GalliumOS pkg versioning is fixed
-  apt-get -y --force-yes ${VERBOSITY_APTGET} dist-upgrade
+  # --allow-downgrades replaces the deprecated --force-yes
+  apt-get -y --allow-downgrades ${VERBOSITY_APTGET} dist-upgrade
   APT_DB_NEEDS_UPDATE=1
 }
 
@@ -595,8 +557,8 @@ create_fakebins()
   local _bins="initctl invoke-rc.d restart start stop start-stop-daemon service"
   rm -rf /tmp/fakebin
   mkdir -p /tmp/fakebin
-  for bin in $_bins; do
-    ln -s /bin/true /tmp/fakebin/${bin}
+  for bin in ${_bins}; do
+    ln -s /bin/true "/tmp/fakebin/${bin}"
   done
   export PATH=/tmp/fakebin:$PATH
 }
@@ -613,7 +575,7 @@ install_grub()
   fi
   
   grub-mkconfig -o /boot/grub/grub.cfg
-  grub-install ${CHRX_TARGET_DISK} --force
+  grub-install "${CHRX_TARGET_DISK}" --force
   
   #echo -e "\n${ANSI_GRN}Purging unwanted pkgs.${ANSI_RST}"
   #apt-get -y ${VERBOSITY_APTGET} purge openjade openjade1.3 jade tex-common sgml-base
@@ -635,7 +597,7 @@ GRUB_DISABLE_LINUX_UUID="true"
 EOF
   dnf ${VERBOSITY_DNF} -y install grub2
   grub2-mkconfig -o /boot/grub2/grub.cfg
-  grub2-install ${CHRX_TARGET_DISK} --force
+  grub2-install "${CHRX_TARGET_DISK}" --force
 }
 
 fedora_set_selinux_autolabel()
